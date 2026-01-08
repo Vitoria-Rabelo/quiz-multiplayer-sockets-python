@@ -8,11 +8,13 @@ import random
 HOST = '0.0.0.0'
 PORT_TCP = 6000
 PORT_UDP = 5001
+MAX_JOGADORES = 4
 MIN_JOGADORES = 2
 
 ranking_global = {}
 fila_espera = []
 lock = threading.Lock()
+partida_em_preparacao = False
 
 LOGO = r"""
 _________________________________________
@@ -48,15 +50,14 @@ def servico_discovery_udp():
                     s.sendto("SERVIDOR_AQUI".encode(), addr)
             except: pass
 
-def iniciar_partida(jogadores):
-    todas_perguntas = carregar_json('perguntas.json', [])
-    if not todas_perguntas: return
-    rodada = random.sample(todas_perguntas, min(len(todas_perguntas), 3))
+def gerenciar_partida(jogadores):
+    todas_p = carregar_json('perguntas.json', [])
+    if not todas_p: return
+    rodada = random.sample(todas_p, min(len(todas_p), 3))
     
     try:
         for p in jogadores: 
             p['socket'].send(LOGO.encode())
-            time.sleep(0.1)
             p['socket'].send("\n--- PARTIDA INICIADA ---\n".encode())
         
         for q in rodada:
@@ -65,7 +66,10 @@ def iniciar_partida(jogadores):
             
             for p in jogadores:
                 inicio = time.time()
-                resp = p['socket'].recv(1024).decode().strip()
+                try:
+                    p['socket'].settimeout(15)
+                    resp = p['socket'].recv(1024).decode().strip()
+                except: resp = ""
                 fim = time.time()
                 
                 if resp == q['r']:
@@ -73,47 +77,87 @@ def iniciar_partida(jogadores):
                     p['pontos'] += pts
                     p['socket'].send(f"Correto! (+{pts} pts)\n".encode())
                 else:
-                    p['socket'].send("Errado! (0 pts)\n".encode())
+                    p['socket'].send(f"Errado! A resposta era {q['r']}\n".encode())
 
+        # Processamento de Ranking
         with lock:
             global ranking_global
             ranking_global = carregar_json('ranking.json', {})
+            resumo = "\n--- RESULTADO DA RODADA ---\n"
             for p in jogadores:
                 ranking_global[p['nome']] = ranking_global.get(p['nome'], 0) + p['pontos']
+                resumo += f"{p['nome']}: {p['pontos']} pts\n"
             salvar_ranking()
 
-            resumo = "\n--- RANKING DA RODADA ---\n"
-            for p in jogadores: resumo += f"{p['nome']}: {p['pontos']} pts\n"
             resumo += "\n🏆 TOP 5 HISTORICO 🏆\n"
             top5 = sorted(ranking_global.items(), key=lambda x: x[1], reverse=True)[:5]
-            for i, (nome, pts) in enumerate(top5, 1):
-                resumo += f"{i}. {nome.ljust(15)} | {pts} pts\n"
+            for i, (n, pts) in enumerate(top5, 1):
+                resumo += f"{i}. {n.ljust(15)} | {pts} pts\n"
 
         for p in jogadores:
-            p['socket'].send(resumo.encode())
-            time.sleep(0.5)
+            p['socket'].send((resumo + "\nA janela fechara em 10 segundos.\n").encode())
+            time.sleep(10)
             p['socket'].close()
-    except: pass
+    except Exception as e:
+        print(f"Erro na partida: {e}")
 
-def monitor_fila():
+def monitor_lobby():
+    global fila_espera
     while True:
-        if len(fila_espera) >= MIN_JOGADORES:
-            with lock:
-                sala = [fila_espera.pop(0) for _ in range(MIN_JOGADORES)]
-            threading.Thread(target=iniciar_partida, args=(sala,)).start()
+        with lock:
+            # Se atingir 4, começa na hora
+            if len(fila_espera) >= MAX_JOGADORES:
+                sala = [fila_espera.pop(0) for _ in range(MAX_JOGADORES)]
+                threading.Thread(target=gerenciar_partida, args=(sala,)).start()
         time.sleep(1)
 
+def aguardar_comando_inicio(conn, jogador_info):
+    global fila_espera
+    try:
+        while True:
+            data = conn.recv(1024).decode().strip()
+            if data == "1":
+                with lock:
+                    if len(fila_espera) >= MIN_JOGADORES:
+                        sala_completa = []
+                        while fila_espera:
+                            sala_completa.append(fila_espera.pop(0))
+                        
+                        print(f"🚀 Partida iniciada por comando de {jogador_info['nome']}")
+                        threading.Thread(target=gerenciar_partida, args=(sala_completa,)).start()
+                        break 
+                    else:
+                        conn.send("Aguarde pelo menos 2 jogadores para iniciar.\n> ".encode())
+            if not data: break
+    except: pass
+
 if __name__ == "__main__":
+    print(f"{LOGO}\nServidor Quiz Online Pronto na porta {PORT_TCP}!")
     threading.Thread(target=servico_discovery_udp, daemon=True).start()
-    threading.Thread(target=monitor_fila, daemon=True).start()
+    threading.Thread(target=monitor_lobby, daemon=True).start()
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
         tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         tcp.bind((HOST, PORT_TCP))
         tcp.listen(5)
-        print("Servidor Quiz Online Pronto!")
         while True:
             conn, addr = tcp.accept()
             conn.send("Nickname: ".encode())
             nome = conn.recv(1024).decode().strip()
-            with lock: fila_espera.append({'socket': conn, 'nome': nome, 'pontos': 0})
-            conn.send(f"Aguardando oponente...\n".encode())
+            
+            novo_j = {'socket': conn, 'nome': nome, 'pontos': 0}
+            with lock:
+                fila_espera.append(novo_j)
+                msg = f"\nBem-vindo, {nome}! ({len(fila_espera)}/{MAX_JOGADORES})\n"
+                if len(fila_espera) >= MIN_JOGADORES:
+                    msg += "Digite '1' para iniciar agora ou aguarde mais jogadores...\n> "
+                else:
+                    msg += "Aguardando mais jogadores...\n"
+                
+                # Avisa todos na fila
+                for j in fila_espera:
+                    try: j['socket'].send(msg.encode())
+                    except: pass
+            
+            # Thread para ouvir se este jogador específico quer iniciar o jogo
+            threading.Thread(target=aguardar_comando_inicio, args=(conn, novo_j), daemon=True).start()
