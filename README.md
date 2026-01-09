@@ -31,5 +31,6 @@ python3 cliente.py
 
 Rede (WAN)
 ```bash
+brew install ngrok
 python3 cliente.py 0.tcp.sa.ngrok.io:XXXXX
 ```
