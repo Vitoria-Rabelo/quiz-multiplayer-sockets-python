@@ -1,8 +1,5 @@
 # 🧠 Quiz Multiplayer: Socket-Based Network Application
 
-![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
-![Protocols](https://img.shields.io/badge/protocols-TCP%20%7C%20UDP-orange)
-
 Implementação original de um sistema de Quiz competitivo para a disciplina de **Redes de Computadores**. O projeto demonstra o uso de sockets para comunicação global e multithreading para gerenciamento de lobby dinâmico.
 
 ---
