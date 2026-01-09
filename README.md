@@ -13,7 +13,7 @@ O sistema opera na camada de **Transporte** do modelo OSI:
 
 ---
 
-## 🚀 Como Executar
+## Como Executar
 
 ### 1. Iniciar o Servidor
 ```bash
