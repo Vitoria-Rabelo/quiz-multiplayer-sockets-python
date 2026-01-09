@@ -4,15 +4,12 @@ import time
 import json
 import os
 import random
-import urllib.request
 
-# Configurações de Rede
 HOST = '0.0.0.0'
 PORT_TCP = 6000
 PORT_UDP = 5001
 MAX_JOGADORES_POR_SALA = 2
 
-# Variáveis de Controle
 fila_espera = []
 contador_salas = 0
 lock = threading.Lock()
@@ -57,7 +54,6 @@ def gerenciar_partida(jogadores, id_sala):
     rodada = random.sample(todas_p, min(len(todas_p), 3))
     
     try:
-        # Envia LOGO e Início
         for p in jogadores: 
             p['socket'].send(LOGO.encode())
             p['socket'].send(f"\n--- PARTIDA INICIADA (SALA {id_sala:02d}) ---\n".encode())
@@ -82,7 +78,6 @@ def gerenciar_partida(jogadores, id_sala):
                 else:
                     p['socket'].send(f"❌ Errado! A resposta era {q['r']}\n".encode())
 
-        # Processamento de Ranking Global
         with lock:
             ranking = carregar_json('ranking.json', {})
             for p in jogadores:
@@ -99,7 +94,7 @@ def gerenciar_partida(jogadores, id_sala):
 
         for p in jogadores:
             p['socket'].send((resumo + "\nEncerrando conexao em 10s...\n").encode())
-            time.sleep(1) # Pequeno delay entre mensagens
+            time.sleep(1) 
         
         time.sleep(10)
         for p in jogadores: p['socket'].close()
@@ -117,7 +112,6 @@ def monitor_matchmaking():
                 sala_atual = [fila_espera.pop(0) for _ in range(MAX_JOGADORES_POR_SALA)]
                 
                 print(f"✨ Sala {contador_salas:02d} aberta.")
-                # Dispara a thread da partida e continua ouvindo novos jogadores
                 threading.Thread(target=gerenciar_partida, args=(sala_atual, contador_salas), daemon=True).start()
         time.sleep(0.5)
 
