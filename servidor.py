@@ -4,17 +4,18 @@ import time
 import json
 import os
 import random
+import urllib.request
 
+# Configurações de Rede
 HOST = '0.0.0.0'
 PORT_TCP = 6000
 PORT_UDP = 5001
-MAX_JOGADORES = 4
-MIN_JOGADORES = 2
+MAX_JOGADORES_POR_SALA = 2
 
-ranking_global = {}
+# Variáveis de Controle
 fila_espera = []
+contador_salas = 0
 lock = threading.Lock()
-partida_em_preparacao = False
 
 LOGO = r"""
 _________________________________________
@@ -35,9 +36,9 @@ def carregar_json(arquivo, padrao):
         except: return padrao
     return padrao
 
-def salvar_ranking():
+def salvar_ranking(ranking):
     with open('ranking.json', 'w', encoding='utf-8') as f:
-        json.dump(ranking_global, f, indent=4)
+        json.dump(ranking, f, indent=4)
 
 def servico_discovery_udp():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -50,20 +51,22 @@ def servico_discovery_udp():
                     s.sendto("SERVIDOR_AQUI".encode(), addr)
             except: pass
 
-def gerenciar_partida(jogadores):
-    todas_p = carregar_json('perguntas.json', [])
-    if not todas_p: return
+def gerenciar_partida(jogadores, id_sala):
+    print(f" Sala {id_sala:02d} em andamento com {len(jogadores)} jogadores.")
+    todas_p = carregar_json('perguntas.json', [{"p": "Pergunta erro", "r": "1"}])
     rodada = random.sample(todas_p, min(len(todas_p), 3))
     
     try:
+        # Envia LOGO e Início
         for p in jogadores: 
             p['socket'].send(LOGO.encode())
-            p['socket'].send("\n--- PARTIDA INICIADA ---\n".encode())
+            p['socket'].send(f"\n--- PARTIDA INICIADA (SALA {id_sala:02d}) ---\n".encode())
         
         for q in rodada:
             for p in jogadores: 
                 p['socket'].send(f"\nPERGUNTA: {q['p']}\nSua resposta: ".encode())
             
+            # Coleta respostas
             for p in jogadores:
                 inicio = time.time()
                 try:
@@ -75,89 +78,73 @@ def gerenciar_partida(jogadores):
                 if resp == q['r']:
                     pts = max(2, int(11 - (fim - inicio)))
                     p['pontos'] += pts
-                    p['socket'].send(f"Correto! (+{pts} pts)\n".encode())
+                    p['socket'].send(f"✅ Correto! (+{pts} pts)\n".encode())
                 else:
-                    p['socket'].send(f"Errado! A resposta era {q['r']}\n".encode())
+                    p['socket'].send(f"❌ Errado! A resposta era {q['r']}\n".encode())
 
-        # Processamento de Ranking
+        # Processamento de Ranking Global
         with lock:
-            global ranking_global
-            ranking_global = carregar_json('ranking.json', {})
-            resumo = "\n--- RESULTADO DA RODADA ---\n"
+            ranking = carregar_json('ranking.json', {})
             for p in jogadores:
-                ranking_global[p['nome']] = ranking_global.get(p['nome'], 0) + p['pontos']
-                resumo += f"{p['nome']}: {p['pontos']} pts\n"
-            salvar_ranking()
+                ranking[p['nome']] = ranking.get(p['nome'], 0) + p['pontos']
+            salvar_ranking(ranking)
 
-            resumo += "\n🏆 TOP 5 HISTORICO 🏆\n"
-            top5 = sorted(ranking_global.items(), key=lambda x: x[1], reverse=True)[:5]
+            resumo = f"\n--- RANKING FINAL DA SALA {id_sala:02d} ---\n"
+            for p in jogadores: resumo += f"{p['nome']}: {p['pontos']} pts\n"
+            
+            top5 = sorted(ranking.items(), key=lambda x: x[1], reverse=True)[:5]
+            resumo += "\n🏆 TOP 5 GERAL 🏆\n"
             for i, (n, pts) in enumerate(top5, 1):
                 resumo += f"{i}. {n.ljust(15)} | {pts} pts\n"
 
         for p in jogadores:
-            p['socket'].send((resumo + "\nA janela fechara em 10 segundos.\n").encode())
-            time.sleep(10)
-            p['socket'].close()
-    except Exception as e:
-        print(f"Erro na partida: {e}")
+            p['socket'].send((resumo + "\nEncerrando conexao em 10s...\n").encode())
+            time.sleep(1) # Pequeno delay entre mensagens
+        
+        time.sleep(10)
+        for p in jogadores: p['socket'].close()
+        print(f"🏁 Sala {id_sala:02d} finalizada.")
 
-def monitor_lobby():
-    global fila_espera
+    except Exception as e:
+        print(f"⚠️ Erro na Sala {id_sala:02d}: {e}")
+
+def monitor_matchmaking():
+    global fila_espera, contador_salas
     while True:
         with lock:
-            # Se atingir 4, começa na hora
-            if len(fila_espera) >= MAX_JOGADORES:
-                sala = [fila_espera.pop(0) for _ in range(MAX_JOGADORES)]
-                threading.Thread(target=gerenciar_partida, args=(sala,)).start()
-        time.sleep(1)
-
-def aguardar_comando_inicio(conn, jogador_info):
-    global fila_espera
-    try:
-        while True:
-            data = conn.recv(1024).decode().strip()
-            if data == "1":
-                with lock:
-                    if len(fila_espera) >= MIN_JOGADORES:
-                        sala_completa = []
-                        while fila_espera:
-                            sala_completa.append(fila_espera.pop(0))
-                        
-                        print(f"🚀 Partida iniciada por comando de {jogador_info['nome']}")
-                        threading.Thread(target=gerenciar_partida, args=(sala_completa,)).start()
-                        break 
-                    else:
-                        conn.send("Aguarde pelo menos 2 jogadores para iniciar.\n> ".encode())
-            if not data: break
-    except: pass
+            if len(fila_espera) >= MAX_JOGADORES_POR_SALA:
+                contador_salas += 1
+                sala_atual = [fila_espera.pop(0) for _ in range(MAX_JOGADORES_POR_SALA)]
+                
+                print(f"✨ Sala {contador_salas:02d} aberta.")
+                # Dispara a thread da partida e continua ouvindo novos jogadores
+                threading.Thread(target=gerenciar_partida, args=(sala_atual, contador_salas), daemon=True).start()
+        time.sleep(0.5)
 
 if __name__ == "__main__":
-    print(f"{LOGO}\nServidor Quiz Online Pronto na porta {PORT_TCP}!")
+    print(f"{LOGO}\n[SERVIDOR QUIZ] Status: Online | Porta: {PORT_TCP}")
+    print(f"Capacidade: {MAX_JOGADORES_POR_SALA} jogadores por sala.\n")
+
     threading.Thread(target=servico_discovery_udp, daemon=True).start()
-    threading.Thread(target=monitor_lobby, daemon=True).start()
+    threading.Thread(target=monitor_matchmaking, daemon=True).start()
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
         tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         tcp.bind((HOST, PORT_TCP))
-        tcp.listen(5)
+        tcp.listen(10)
+        
         while True:
             conn, addr = tcp.accept()
-            conn.send("Nickname: ".encode())
-            nome = conn.recv(1024).decode().strip()
-            
-            novo_j = {'socket': conn, 'nome': nome, 'pontos': 0}
-            with lock:
-                fila_espera.append(novo_j)
-                msg = f"\nBem-vindo, {nome}! ({len(fila_espera)}/{MAX_JOGADORES})\n"
-                if len(fila_espera) >= MIN_JOGADORES:
-                    msg += "Digite '1' para iniciar agora ou aguarde mais jogadores...\n> "
-                else:
-                    msg += "Aguardando mais jogadores...\n"
+            try:
+                conn.send("Nickname: ".encode())
+                nome = conn.recv(1024).decode().strip()
+                if not nome: nome = f"User_{addr[1]}"
                 
-                # Avisa todos na fila
-                for j in fila_espera:
-                    try: j['socket'].send(msg.encode())
-                    except: pass
-            
-            # Thread para ouvir se este jogador específico quer iniciar o jogo
-            threading.Thread(target=aguardar_comando_inicio, args=(conn, novo_j), daemon=True).start()
+                with lock:
+                    fila_espera.append({'socket': conn, 'nome': nome, 'pontos': 0})
+                    print(f"👤 {nome} entrou na fila. ({len(fila_espera)}/{MAX_JOGADORES_POR_SALA})")
+                    
+                    msg = f"\nOla {nome}! Voce esta na fila. Jogadores: {len(fila_espera)}/{MAX_JOGADORES_POR_SALA}\n"
+                    conn.send(msg.encode())
+            except:
+                conn.close()

@@ -3,6 +3,5 @@
     {"p": " Qual a camada do protocolo IP? (1:Rede / 2:Transporte): ", "r": "1"},
     {"p": " Cabo Cat6 suporta 10Gbps? (1:Sim / 2:Nao): ", "r": "1"},
     {"p": " O que resolve nomes em IPs? (1:DNS / 2:DHCP): ", "r": "1"},
-    {"p": " Porta padrao do HTTP? (1:80 / 2:21): ", "r": "1"},
     {"p": " Porta padrao do HTTP? (1:80 / 2:21): ", "r": "1"}
 ]
