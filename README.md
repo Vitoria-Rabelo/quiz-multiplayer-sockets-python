@@ -1,7 +1,16 @@
-# 🧠 Quiz Multiplayer: Socket-Based Network Application
+# Quiz Multiplayer: Socket-Based Network Application
 
 Implementação original de um sistema de Quiz competitivo para a disciplina de **Redes de Computadores**. O projeto demonstra o uso de sockets para comunicação global e multithreading para gerenciamento de lobby dinâmico.
-
+"""
+_________________________________________
+|                                       |
+|   / __ \  | |  | |  | |  |___  /      |
+|  | |  | | | |  | |  | |     / /       |
+|  | |_ | | | |__| |  | |    / /__      |
+|   \__\_\   \____/   |_|   /_____|     |
+|_______________________________________|
+      ||       ||       ||       ||
+"""
 ---
 
 ## 🛠️ Tecnologias e Protocolos
