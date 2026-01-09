@@ -62,7 +62,6 @@ def gerenciar_partida(jogadores, id_sala):
             for p in jogadores: 
                 p['socket'].send(f"\nPERGUNTA: {q['p']}\nSua resposta: ".encode())
             
-            # Coleta respostas
             for p in jogadores:
                 inicio = time.time()
                 try:
