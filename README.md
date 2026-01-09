@@ -23,10 +23,7 @@ python3 servidor.py
 ```
 
 ### 2. Conectar Clientes
-Mesmo host
-```bash
 
-```
 Rede (LAN)  (Autodescoberta via UDP)
 ```bash
 python3 cliente.py
