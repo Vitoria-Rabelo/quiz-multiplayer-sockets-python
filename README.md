@@ -22,13 +22,13 @@ python3 servidor.py
 
 ### 2. Conectar Clientes
 
-Rede (LAN)  (Autodescoberta via UDP)
+Rede (LAN) (Descoberta via UDP)
 ```bash
 python3 cliente.py
 ```
 
-Rede (WAN)
+Rede (WAN) com Ngrok
 ```bash
-brew install ngrok
+brew install ngrok 
 python3 cliente.py 0.tcp.sa.ngrok.io:XXXXX
 ```
